@@ -8,6 +8,8 @@ A tiny, lightweight Windows system tray utility written in C++20 / Win32 that sh
 
 I got tired of keeping multiple bloated OEM companion apps running in the background just to check the battery percentage on my mouse, controller, or headset. This replaces them with a single small standalone executable (~2–4 MB RAM, zero external dependencies) that sits quietly in the system tray.
 
+![Task Manager resource usage](assets/resource-usage.png)
+
 > **Note:** Wireless peripherals report battery status in many different (and often proprietary) ways. While this works with standard Bluetooth, XInput, HID battery reports, and select 2.4 GHz wireless dongles, **there is no guarantee it will work with every device**.
 
 ## Features
