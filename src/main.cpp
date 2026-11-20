@@ -175,12 +175,8 @@ void UpdateTrayIcon(HWND hwnd, bool forceAdd = false) {
         if (tip.size() >= _countof(nid.szTip)) tip.resize(_countof(nid.szTip) - 1);
         wcscpy_s(nid.szTip, tip.c_str());
 
-        bool added = false;
-        if (forceAdd || i >= prevCount) {
-            added = Shell_NotifyIconW(NIM_ADD, &nid) != FALSE;
-        } else if (!Shell_NotifyIconW(NIM_MODIFY, &nid)) {
-            added = Shell_NotifyIconW(NIM_ADD, &nid) != FALSE;
-        }
+        bool added = (forceAdd || i >= prevCount || !Shell_NotifyIconW(NIM_MODIFY, &nid)) &&
+                     Shell_NotifyIconW(NIM_ADD, &nid);
         if (added) PromoteTrayIconsToTaskbar(false);
 
         if (g_trayIcons[i]) DestroyIcon(g_trayIcons[i]);
@@ -226,60 +222,41 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                              OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                              DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
 
-        HWND lbl1 = CreateWindowW(L"STATIC", L"Indicator Design:", WS_CHILD | WS_VISIBLE, 16, 18, 120, 22, hwnd, nullptr, nullptr, nullptr);
-        HWND cbStyle = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_TABSTOP,
-                                     145, 14, 170, 160, hwnd, ctlId(IDC_STYLE), nullptr, nullptr);
-        const wchar_t* styles[] = {
-            L"Ring + Device Icon", L"Device Icon + Bar", L"Ring + Percentage",
-            L"Percentage Text", L"Classic Battery Bar"
+        auto addCombo = [&](int y, const wchar_t* label, int id, int dropH,
+                            std::initializer_list<const wchar_t*> items, int sel) {
+            setFont(CreateWindowW(L"STATIC", label, WS_CHILD | WS_VISIBLE, 16, y + 4, 120, 22, hwnd, nullptr, nullptr, nullptr));
+            HWND cb = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_TABSTOP,
+                                    145, y, 170, dropH, hwnd, ctlId(id), nullptr, nullptr);
+            for (const auto* s : items) SendMessageW(cb, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(s));
+            SendMessageW(cb, CB_SETCURSEL, sel, 0);
+            setFont(cb);
         };
-        for (const auto* s : styles) SendMessageW(cbStyle, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(s));
-        SendMessageW(cbStyle, CB_SETCURSEL, g_settings.style, 0);
+        auto addCheck = [&](int y, const wchar_t* label, int id, bool checked) {
+            HWND chk = CreateWindowW(L"BUTTON", label, WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
+                                     16, y, 295, 22, hwnd, ctlId(id), nullptr, nullptr);
+            SendMessageW(chk, BM_SETCHECK, checked ? BST_CHECKED : BST_UNCHECKED, 0);
+            setFont(chk);
+        };
 
-        HWND lbl2 = CreateWindowW(L"STATIC", L"Icon / Text Size:", WS_CHILD | WS_VISIBLE, 16, 54, 120, 22, hwnd, nullptr, nullptr, nullptr);
-        HWND cbSize = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_TABSTOP,
-                                    145, 50, 170, 140, hwnd, ctlId(IDC_ICONSIZE), nullptr, nullptr);
-        const wchar_t* sizes[] = {L"Small", L"Medium", L"Large", L"Extra Large"};
-        for (const auto* sz : sizes) SendMessageW(cbSize, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(sz));
-        SendMessageW(cbSize, CB_SETCURSEL, g_settings.iconSize, 0);
-
-        HWND lbl3 = CreateWindowW(L"STATIC", L"Update Interval:", WS_CHILD | WS_VISIBLE, 16, 90, 120, 22, hwnd, nullptr, nullptr, nullptr);
-        HWND cbInt = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_TABSTOP,
-                                   145, 86, 170, 150, hwnd, ctlId(IDC_INTERVAL), nullptr, nullptr);
-        const wchar_t* labels[] = {L"10 seconds", L"30 seconds", L"1 minute", L"5 minutes", L"15 minutes"};
         int selIdx = 2;
         for (int i = 0; i < 5; ++i) {
-            SendMessageW(cbInt, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(labels[i]));
             if (kIntervals[i] == g_settings.intervalSec) selIdx = i;
         }
-        SendMessageW(cbInt, CB_SETCURSEL, selIdx, 0);
+        addCombo(14, L"Indicator Design:", IDC_STYLE, 160,
+                 {L"Ring + Device Icon", L"Device Icon + Bar", L"Ring + Percentage", L"Percentage Text", L"Classic Battery Bar"},
+                 g_settings.style);
+        addCombo(50, L"Icon / Text Size:", IDC_ICONSIZE, 140, {L"Small", L"Medium", L"Large", L"Extra Large"}, g_settings.iconSize);
+        addCombo(86, L"Update Interval:", IDC_INTERVAL, 150,
+                 {L"10 seconds", L"30 seconds", L"1 minute", L"5 minutes", L"15 minutes"}, selIdx);
+        addCheck(128, L"Include System / Laptop Battery", IDC_SYSTEM, g_settings.showSystemBattery);
+        addCheck(156, L"Show Demo Devices (when none detected)", IDC_DEMO, g_settings.showDemoWhenEmpty);
+        addCheck(184, L"Combine into Single Tray Icon", IDC_SINGLE, g_settings.singleIconMode);
+        addCheck(212, L"Launch on Windows Startup", IDC_STARTUP, IsStartupEnabled());
 
-        HWND chkSys = CreateWindowW(L"BUTTON", L"Include System / Laptop Battery",
-                                    WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
-                                    16, 128, 290, 22, hwnd, ctlId(IDC_SYSTEM), nullptr, nullptr);
-        SendMessageW(chkSys, BM_SETCHECK, g_settings.showSystemBattery ? BST_CHECKED : BST_UNCHECKED, 0);
-
-        HWND chkDemo = CreateWindowW(L"BUTTON", L"Show Demo Devices (when none detected)",
-                                     WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
-                                     16, 156, 295, 22, hwnd, ctlId(IDC_DEMO), nullptr, nullptr);
-        SendMessageW(chkDemo, BM_SETCHECK, g_settings.showDemoWhenEmpty ? BST_CHECKED : BST_UNCHECKED, 0);
-
-        HWND chkSingle = CreateWindowW(L"BUTTON", L"Combine into Single Tray Icon",
-                                       WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
-                                       16, 184, 295, 22, hwnd, ctlId(IDC_SINGLE), nullptr, nullptr);
-        SendMessageW(chkSingle, BM_SETCHECK, g_settings.singleIconMode ? BST_CHECKED : BST_UNCHECKED, 0);
-
-        HWND chkStartup = CreateWindowW(L"BUTTON", L"Launch on Windows Startup",
-                                        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
-                                        16, 212, 295, 22, hwnd, ctlId(IDC_STARTUP), nullptr, nullptr);
-        SendMessageW(chkStartup, BM_SETCHECK, IsStartupEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
-
-        HWND btnSave = CreateWindowW(L"BUTTON", L"Save && Apply", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | WS_TABSTOP,
-                                     115, 254, 98, 28, hwnd, ctlId(IDC_SAVE), nullptr, nullptr);
-        HWND btnCancel = CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
-                                       222, 254, 92, 28, hwnd, ctlId(IDC_CANCEL), nullptr, nullptr);
-
-        for (HWND c : {lbl1, cbStyle, lbl2, cbSize, lbl3, cbInt, chkSys, chkDemo, chkSingle, chkStartup, btnSave, btnCancel}) setFont(c);
+        setFont(CreateWindowW(L"BUTTON", L"Save && Apply", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | WS_TABSTOP,
+                              115, 254, 98, 28, hwnd, ctlId(IDC_SAVE), nullptr, nullptr));
+        setFont(CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
+                              222, 254, 92, 28, hwnd, ctlId(IDC_CANCEL), nullptr, nullptr));
         return 0;
     }
     case WM_COMMAND:
@@ -372,12 +349,8 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         }
         return 0;
     case WM_TIMER:
-        if (wParam == IDT_DEBOUNCE) {
-            KillTimer(hwnd, IDT_DEBOUNCE);
-            RefreshDevicesAndTray(hwnd);
-        } else if (wParam == IDT_POLL) {
-            RefreshDevicesAndTray(hwnd);
-        }
+        if (wParam == IDT_DEBOUNCE) KillTimer(hwnd, IDT_DEBOUNCE);
+        if (wParam == IDT_DEBOUNCE || wParam == IDT_POLL) RefreshDevicesAndTray(hwnd);
         return 0;
     case WM_DEVICECHANGE:
         if (wParam == DBT_DEVICEARRIVAL || wParam == DBT_DEVICEREMOVECOMPLETE || wParam == DBT_DEVNODES_CHANGED) {

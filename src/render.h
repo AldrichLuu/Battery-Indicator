@@ -13,7 +13,7 @@ enum class IndicatorStyle : int {
     ClassicBattery = 4
 };
 
-inline COLORREF GetBatteryColor(int pct, bool /*charging*/) {
+inline COLORREF GetBatteryColor(int pct) {
     if (pct >= 50) return RGB(46, 204, 113);
     if (pct >= 25) return RGB(245, 166, 35);
     return RGB(239, 68, 68);
@@ -147,7 +147,7 @@ inline void RenderSupersampled(uint32_t* bits, SampleFn&& fn) {
     }
 }
 
-inline void CompositeWhiteText(uint32_t* dstBits, const std::wstring& text, int fontSize, RECT rc, bool darkHalo = false) {
+inline HBITMAP CreateDib32(uint32_t*& bits) {
     BITMAPINFO bmi{};
     bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     bmi.bmiHeader.biWidth = 32;
@@ -155,12 +155,16 @@ inline void CompositeWhiteText(uint32_t* dstBits, const std::wstring& text, int 
     bmi.bmiHeader.biPlanes = 1;
     bmi.bmiHeader.biBitCount = 32;
     bmi.bmiHeader.biCompression = BI_RGB;
-
-    uint32_t* txtBits = nullptr;
     HDC screenDc = GetDC(nullptr);
-    HBITMAP txtBmp = CreateDIBSection(screenDc, &bmi, DIB_RGB_COLORS, reinterpret_cast<void**>(&txtBits), nullptr, 0);
-    HDC dc = CreateCompatibleDC(screenDc);
+    HBITMAP bmp = CreateDIBSection(screenDc, &bmi, DIB_RGB_COLORS, reinterpret_cast<void**>(&bits), nullptr, 0);
     ReleaseDC(nullptr, screenDc);
+    return bmp;
+}
+
+inline void CompositeWhiteText(uint32_t* dstBits, const std::wstring& text, int fontSize, RECT rc, bool darkHalo = false) {
+    uint32_t* txtBits = nullptr;
+    HBITMAP txtBmp = CreateDib32(txtBits);
+    HDC dc = CreateCompatibleDC(nullptr);
     if (!txtBmp || !txtBits || !dc) {
         if (dc) DeleteDC(dc);
         if (txtBmp) DeleteObject(txtBmp);
@@ -220,15 +224,6 @@ inline void CompositeWhiteText(uint32_t* dstBits, const std::wstring& text, int 
     DeleteObject(txtBmp);
 }
 
-inline HICON BitsToIcon(uint32_t* bits, HBITMAP colorBmp) {
-    (void)bits;
-    HBITMAP maskBmp = CreateBitmap(32, 32, 1, 1, nullptr);
-    ICONINFO ii{TRUE, 0, 0, maskBmp, colorBmp};
-    HICON icon = CreateIconIndirect(&ii);
-    if (maskBmp) DeleteObject(maskBmp);
-    return icon;
-}
-
 } // namespace render_detail
 
 inline HICON CreateDeviceTrayIcon(const DeviceInfo* dev, IndicatorStyle style, int iconSize = 2) {
@@ -245,18 +240,8 @@ inline HICON CreateDeviceTrayIcon(const DeviceInfo* dev, IndicatorStyle style, i
     const float innerR = outerR - kRingThick[iconSize];
     const float glyphScale = kGlyphScale[iconSize];
 
-    BITMAPINFO bmi{};
-    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth = 32;
-    bmi.bmiHeader.biHeight = -32;
-    bmi.bmiHeader.biPlanes = 1;
-    bmi.bmiHeader.biBitCount = 32;
-    bmi.bmiHeader.biCompression = BI_RGB;
-
     uint32_t* bits = nullptr;
-    HDC screenDc = GetDC(nullptr);
-    HBITMAP colorBmp = CreateDIBSection(screenDc, &bmi, DIB_RGB_COLORS, reinterpret_cast<void**>(&bits), nullptr, 0);
-    ReleaseDC(nullptr, screenDc);
+    HBITMAP colorBmp = render_detail::CreateDib32(bits);
     if (!colorBmp || !bits) {
         if (colorBmp) DeleteObject(colorBmp);
         return nullptr;
@@ -279,7 +264,7 @@ inline HICON CreateDeviceTrayIcon(const DeviceInfo* dev, IndicatorStyle style, i
         render_detail::CompositeWhiteText(bits, L"--", kDashFont[iconSize], {1, 1, 31, 31}, true);
     } else {
         const int pct = dev->percent;
-        const COLORREF accent = GetBatteryColor(pct, dev->charging);
+        const COLORREF accent = GetBatteryColor(pct);
         const DeviceKind kind = dev->kind;
 
         switch (style) {
@@ -393,7 +378,10 @@ inline HICON CreateDeviceTrayIcon(const DeviceInfo* dev, IndicatorStyle style, i
         }
     }
 
-    HICON icon = render_detail::BitsToIcon(bits, colorBmp);
+    HBITMAP maskBmp = CreateBitmap(32, 32, 1, 1, nullptr);
+    ICONINFO ii{TRUE, 0, 0, maskBmp, colorBmp};
+    HICON icon = CreateIconIndirect(&ii);
+    if (maskBmp) DeleteObject(maskBmp);
     DeleteObject(colorBmp);
     return icon;
 }
